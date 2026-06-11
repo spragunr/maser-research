@@ -1,0 +1,16 @@
+
+
+I have the masers and non-masers in two different files, as I have a slightly different set of parameters for each type; i.e., there is no Lum (maser luminosity), or class (the type of maser emission), or Vsys (the systemic velocity at which the maser is detected) for the non-maser galaxies;  Velo for the non-masers refers to the receding velocity (or redshift, z) of the galaxy 
+
+* for the nearby cosmic objects, z = velocity/c; where c =speed of light 
+(not needed for the project per se, but in case you all wanted to know)
+
+The files list a bunch of parameters related to which W’s, which are called magnitudes, and are a way of quantizing the brightness in that respective waveband (there are four of them in mid-IR, where this WISE telescope works).
+
+The values we will work with are listed as wXmpro_AWS, where X = 1, 2, 3, 4.
+
+The other values refer to the errors associated with these measurements (sigma # of the detection, signal-to-noise ratio, or snr, chi^2), so we should not bother with them for now, but if we feel like we want to include some goodness of data into the model, then we can include them later. 
+
+Let me know if there are questions about all these.  
+
+Samples are definitely larger than those with X-ray measurements, and hopefully, more useful in our pursuits.

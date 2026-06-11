@@ -1,0 +1,1 @@
+"""Maser candidate selection package."""
