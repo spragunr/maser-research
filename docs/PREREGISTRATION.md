@@ -26,7 +26,7 @@ that are just as binding as the data themselves. Any change to any of these
 five files requires an amendment under Section 8.
 
 ```
-4bc54b0c78de0fe49aee4426846f693b  src/maser_data.py
+e94771f0854aa49d3ff15640382b33c0  src/maser_data.py
 9ac8205e8ed48f4a68b41ab8654e3f88  data/raw/Table_1_data.txt
 727aa8ca9e2bb009b48bdf302f9652be  data/raw/table_2_data.txt
 68a2fb3383d64ba3c4e1979e48257c78  data/raw/allwise_masers_cleaned_6arcs.csv

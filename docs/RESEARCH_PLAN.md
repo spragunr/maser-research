@@ -166,8 +166,8 @@ Its quirks (all handled by `src/maser_data.py`, but understand them):
    look bright, and a model can learn "noisy W4 → nonmaser" as a spurious rule
    that reflects telescope sensitivity rather than astrophysics. We avoid this
    by using W1−W2 and W2−W3 as primary features (both bands are reliably
-   detected for nearly everything); the loader provides low-SNR flags if you
-   want to investigate further.
+   detected for nearly everything); use the raw `wXsnr` columns to flag
+   low-SNR measurements (`wXsnr < 3`) if you want to investigate further.
 3. **Six galaxies are masers here but nonmasers in Dataset 1** (M31, IC 750,
    NGC 4261, Arp 220, IRAS 15480−0344, IGR J16385−2057), probably detections
    published after the 2018 survey catalog. The loader flags them

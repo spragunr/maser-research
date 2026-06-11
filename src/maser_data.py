@@ -108,10 +108,11 @@ def load_wise(clean=True, radius_arcsec=6.0):
                     meaning of -10 unconfirmed -- ask Anca before using)
       maser_class   class_01 with -999 -> NaN; code key unconfirmed (ask Anca)
       w1w2, w2w3, w1w4   colors from wXmpro
-      w3_lowsnr, w4_lowsnr   True where band SNR < 3: the magnitude is
-                    effectively an upper limit. Asymmetric between classes
+      w1snr ... w4snr   WISE signal-to-noise ratios. SNR < 3 marks a
+                    low-SNR magnitude that is effectively an upper limit. This
+                    is most common in W3/W4 and asymmetric between classes
                     (masers are IR-bright), so an artifact risk -- prefer
-                    W1-W2 / W2-W3 features, use these as quality flags.
+                    W1-W2 / W2-W3 features and use SNR for QC.
     GBT sensitivity metadata (tsys_01, int_01, rms1_01, vlo1_01, vhi1_01,
     date_obs_01) exists for nonmasers only; NaN on maser rows.
     """
@@ -141,8 +142,6 @@ def load_wise(clean=True, radius_arcsec=6.0):
     df["w1w2"] = df["w1mpro"] - df["w2mpro"]
     df["w2w3"] = df["w2mpro"] - df["w3mpro"]
     df["w1w4"] = df["w1mpro"] - df["w4mpro"]
-    df["w3_lowsnr"] = df["w3snr"] < 3
-    df["w4_lowsnr"] = df["w4snr"] < 3
     return df
 
 
@@ -164,8 +163,7 @@ def crossmatch(ra1, dec1, ra2, dec2):
 
 
 # WISE columns worth carrying onto the X-ray sample
-_WISE_KEEP = (["source", "is_maser", "velocity", "w1w2", "w2w3", "w1w4",
-               "w3_lowsnr", "w4_lowsnr"]
+_WISE_KEEP = (["source", "is_maser", "velocity", "w1w2", "w2w3", "w1w4"]
               + [f"{b}mpro" for b in WISE_BANDS]
               + [f"{b}snr" for b in WISE_BANDS])
 
