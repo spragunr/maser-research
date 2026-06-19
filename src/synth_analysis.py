@@ -323,6 +323,118 @@ def cv_auc(build, df, features, target, n_splits=5, n_repeats=3, seed=0):
     return np.array(aucs)
 
 
+def _brier_decomposition(y_true, proba, n_bins=10):
+    """Murphy decomposition: brier = reliability - resolution + uncertainty.
+
+    reliability (calibration error, smaller is better): squared gap between
+    predicted probability and observed frequency, averaged within probability
+    bins. This is the number a reliability diagram draws. resolution
+    (sharpness/discrimination, larger is better): how far the per-bin frequencies
+    sit from the base rate -- a model that predicts the base rate for everyone is
+    perfectly calibrated (reliability 0) but useless (resolution 0). uncertainty:
+    base-rate variance p(1-p), fixed by the data, not the model. The three
+    reconstruct brier_score_loss up to binning, and split the single Brier number
+    into the two things we actually care about.
+    """
+    y_true = np.asarray(y_true, dtype=float)
+    proba = np.asarray(proba, dtype=float)
+    n = len(y_true)
+    base = y_true.mean()
+    edges = np.linspace(0.0, 1.0, n_bins + 1)
+    idx = np.clip(np.digitize(proba, edges[1:-1]), 0, n_bins - 1)
+    reliability = resolution = 0.0
+    for b in range(n_bins):
+        m = idx == b
+        nk = int(m.sum())
+        if nk == 0:
+            continue
+        reliability += nk * (proba[m].mean() - y_true[m].mean()) ** 2
+        resolution += nk * (y_true[m].mean() - base) ** 2
+    return dict(reliability=reliability / n, resolution=resolution / n,
+                uncertainty=base * (1.0 - base))
+
+
+def cv_brier(build, df, features, target, n_splits=5, n_repeats=5, seed=0,
+             truth=None):
+    """Per-fold Brier score and Brier skill score on held-out predictions.
+
+    Scores held-out probabilities against the OBSERVED target by default. Pass
+    truth="z_true" to score against the latent maser label, or truth="p_true"/
+    "p_obs" to score against the generator's true probabilities (synthetic only).
+    Scoring against a probability is a far lower-variance calibration check than
+    against binary outcomes, because it removes the 0/1 sampling noise that
+    dominates at our handful of positives.
+
+    Brier skill score (bss) = 1 - brier_model / brier_baseline, where the
+    baseline predicts the TRAIN base rate for every held-out galaxy. bss>0 beats
+    the base rate, bss=1 is perfect, bss<0 is worse than guessing prevalence.
+    Reported alongside the raw Brier because at 3-8% prevalence the raw number is
+    dominated by the base rate and is not comparable across differently filtered
+    samples.
+    """
+    X = df[features].to_numpy()
+    y = df[target].to_numpy()
+    label = None if truth is None else df[truth].to_numpy()
+    briers, skills = [], []
+    for r in range(n_repeats):
+        skf = StratifiedKFold(n_splits=n_splits, shuffle=True,
+                              random_state=seed + r)
+        for tr, te in skf.split(X, y):
+            if y[tr].sum() == 0 or y[te].sum() == 0:
+                continue
+            p = build().fit(X[tr], y[tr]).predict_proba(X[te])[:, 1]
+            scored = y[te] if label is None else label[te]
+            base = y[tr].mean()          # base rate from TRAIN only, no leak
+            bs = np.mean((p - scored) ** 2)
+            bs_base = np.mean((base - scored) ** 2)
+            briers.append(bs)
+            skills.append(np.nan if bs_base == 0 else 1.0 - bs / bs_base)
+    return dict(brier=np.array(briers), bss=np.array(skills))
+
+
+def calibration_study(build, make, features, target, n_sims=15, n_splits=5,
+                      n_repeats=5, seed0=0):
+    """Brier, skill score, and the calibration/sharpness split across sims.
+
+    brier and bss average held-out folds over `n_sims` synthetic datasets. The
+    reliability/resolution split needs many points per bin, so it is computed on
+    each dataset's pooled held-out predictions, then averaged. bss_vs_truth
+    rescore the same predictions against `p_obs` (the generative probability):
+    the gap from bss is the part of the apparent miscalibration that is really
+    just label noise rather than a bad model.
+    """
+    briers, skills, truth_skills = [], [], []
+    rel, res, unc = [], [], []
+    for s in range(n_sims):
+        df = make(seed0 + s)
+        out = cv_brier(build, df, features, target, n_splits, n_repeats,
+                       seed=4000 + s)
+        briers.append(out["brier"].mean())
+        skills.append(np.nanmean(out["bss"]))
+        truth_skills.append(np.nanmean(
+            cv_brier(build, df, features, target, n_splits, n_repeats,
+                     seed=4000 + s, truth="p_obs")["bss"]))
+        X, y = df[features].to_numpy(), df[target].to_numpy()
+        p_all, y_all = [], []
+        skf = StratifiedKFold(n_splits=n_splits, shuffle=True,
+                              random_state=5000 + s)
+        for tr, te in skf.split(X, y):
+            if y[tr].sum() == 0 or y[te].sum() == 0:
+                continue
+            p_all.append(build().fit(X[tr], y[tr]).predict_proba(X[te])[:, 1])
+            y_all.append(y[te])
+        d = _brier_decomposition(np.concatenate(y_all), np.concatenate(p_all))
+        rel.append(d["reliability"])
+        res.append(d["resolution"])
+        unc.append(d["uncertainty"])
+    return dict(brier=round(float(np.mean(briers)), 4),
+                bss=round(float(np.mean(skills)), 3),
+                bss_vs_truth=round(float(np.mean(truth_skills)), 3),
+                reliability=round(float(np.mean(rel)), 4),
+                resolution=round(float(np.mean(res)), 4),
+                uncertainty=round(float(np.mean(unc)), 4))
+
+
 def optimism(build, make, features, target, n_sims=15, seed0=0):
     """Resubstitution AUC minus honest CV AUC: how much a model flatters itself
 
@@ -441,3 +553,20 @@ if __name__ == "__main__":
     for k, v in k_sensitivity(plain_lr, mk, XF, XT).items():
         print(f"  per_fold_precision_at_{k:<2d}: mean={v['mean']:.3f}  "
               f"std_across_folds={v['std']:.3f}")
+
+    print("\nCALIBRATION (Brier + skill score + sharpness split), X-ray, "
+          "interaction truth:")
+    print("  bss>0 beats the base rate; bss_vs_truth scores against p_obs (the")
+    print("  generative probability) so it strips out label-noise miscalibration.")
+    for name, build in (("plain LR", plain_lr), ("interaction LR", interaction_lr),
+                        ("boosted trees", gbt)):
+        c = calibration_study(build, mk, XF, XT, n_sims=12)
+        print(f"  {name:14s}: brier={c['brier']:.4f}  bss={c['bss']:+.3f}  "
+              f"bss_vs_truth={c['bss_vs_truth']:+.3f}  "
+              f"reliability={c['reliability']:.4f}  resolution={c['resolution']:.4f}")
+    print("  distance-censored truth (maser=0 can mean 'not detected'):")
+    mkd = maker("xray", scenario="interaction", strength=3.0, distance_noise=True)
+    c = calibration_study(plain_lr, mkd, XF, XT, n_sims=12)
+    print(f"  plain LR      : brier={c['brier']:.4f}  bss={c['bss']:+.3f}  "
+          f"bss_vs_truth={c['bss_vs_truth']:+.3f}  "
+          f"reliability={c['reliability']:.4f}  resolution={c['resolution']:.4f}")

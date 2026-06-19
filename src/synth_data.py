@@ -25,9 +25,12 @@ make_dataset / make_fused_dataset return a pandas DataFrame whose feature and
 target columns are named exactly as in maser_data.py (FEATURES / TARGET there).
 So a pipeline written `X, y = df[FEATURES[t]], df[TARGET[t]]` runs unchanged on
 synthetic and real data. Synthetic frames also carry diagnostic columns the real
-data lacks: `z_true` (the latent true label) and `detected` (whether a true
-maser was bright enough to be seen). That absence is itself the point: with real
-data you never know which negatives are false negatives.
+data lacks: `z_true` (the latent true label), `detected` (whether a true maser
+was bright enough to be seen), and the generative probabilities `p_true` (P of a
+latent maser) and `p_obs` (P the observed target is 1, after sensitivity). That
+absence is itself the point: with real data you never know which negatives are
+false negatives, nor the probability that produced each label, so scoring a
+model against `p_true`/`p_obs` is a calibration check available only here.
 
 Run `python src/synth_data.py` for dataset summaries.
 """
@@ -272,7 +275,8 @@ def _assemble(spec, X, score, dist, distance_noise, target_prev, rng):
     else:
         sens = np.ones(n)
     b0 = _calibrate_intercept(score, sens, target_prev)
-    z_true = (rng.uniform(size=n) < _sigmoid(b0 + score)).astype(int)
+    p_true = _sigmoid(b0 + score)
+    z_true = (rng.uniform(size=n) < p_true).astype(int)
     detected = (rng.uniform(size=n) < sens).astype(int)
     y = z_true * detected
 
@@ -281,6 +285,8 @@ def _assemble(spec, X, score, dist, distance_noise, target_prev, rng):
     df[spec["dist_col"]] = dist
     df["z_true"] = z_true        # synthetic-only: the latent true label
     df["detected"] = detected    # synthetic-only: was a true maser seen
+    df["p_true"] = p_true        # synthetic-only: P(latent maser) = sigmoid(b0+score)
+    df["p_obs"] = p_true * sens  # synthetic-only: P(observed maser=1), after sensitivity
     return df
 
 
@@ -290,7 +296,8 @@ def make_dataset(plane="xray", scenario="wedge", n=None, strength=2.5,
     """One synthetic catalog on a single 2-feature plane, as a DataFrame.
 
     Columns: the two real feature names, the real binary target name, the real
-    distance column, plus `z_true` and `detected` (synthetic-only). With
+    distance column, plus `z_true`, `detected`, `p_true`, and `p_obs`
+    (synthetic-only). With
     distance_noise=False, detected==1 and the observed target == z_true. With
     distance_noise=True, distant true masers can be missed (target=0), the
     maser=0-means-"not detected" problem in controllable form. Config is stored
