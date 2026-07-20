@@ -31,9 +31,10 @@ latent maser) and `p_obs` (P the observed target is 1, after sensitivity). That
 absence is itself the point: with real data you never know which negatives are
 false negatives, nor the probability that produced each label, so scoring a
 model against `p_true`/`p_obs` is a calibration check available only here.
-An optional `ceiling` caps p_true below 1 (maser beaming requires a near
-edge-on disk no photometric feature can see), giving a truth the logistic
-link cannot represent exactly -- a stress test for the primary model.
+A `ceiling` caps p_true below 1 (maser beaming requires a near edge-on disk
+no photometric feature can see), giving a truth the logistic link cannot
+represent exactly -- a stress test for the primary model. It defaults to 0.4;
+pass ceiling=1.0 for the uncapped plain-sigmoid contrast case.
 
 Run `python src/synth_data.py` for dataset summaries.
 """
@@ -277,10 +278,11 @@ def _assemble(spec, X, score, dist, distance_noise, target_prev, rng,
     `ceiling` caps p_true = ceiling * sigmoid(b0 + score). The physical
     motivation: maser emission is beamed in the disk plane, so detection needs
     a near-edge-on inclination that no photometric feature can see; even a
-    perfect candidate has p_true well below 1. ceiling=1.0 reproduces the
-    plain-sigmoid truth exactly; a capped truth (e.g. 0.4) also makes the
-    logistic link misspecified at the top of its range, a deliberate stress
-    test for the primary model.
+    perfect candidate has p_true well below 1. The default 0.4 reflects this
+    inclination lottery and also makes the logistic link misspecified at the
+    top of its range, a deliberate stress test for the primary model.
+    ceiling=1.0 is the uncapped plain-sigmoid truth (an easier contrast case,
+    whose maser-rich corner can run to p_true ~ 1).
     """
     n = X.shape[0]
     if distance_noise:
@@ -313,7 +315,7 @@ def _assemble(spec, X, score, dist, distance_noise, target_prev, rng,
 
 def make_dataset(plane="xray", scenario="wedge", n=None, strength=2.5,
                  distance_noise=False, prevalence=None, seed=0,
-                 feature_model="bootstrap", jitter=0.03, ceiling=1.0):
+                 feature_model="bootstrap", jitter=0.03, ceiling=0.4):
     """One synthetic catalog on a single 2-feature plane, as a DataFrame.
 
     Columns: the two real feature names, the real binary target name, the real
@@ -322,8 +324,8 @@ def make_dataset(plane="xray", scenario="wedge", n=None, strength=2.5,
     distance_noise=False, detected==1 and the observed target == z_true. With
     distance_noise=True, distant true masers can be missed (target=0), the
     maser=0-means-"not detected" problem in controllable form. `ceiling` caps
-    p_true below 1 (inclination-lottery truth; see _assemble). Config is stored
-    in df.attrs.
+    p_true below 1 (inclination-lottery truth, default 0.4; see _assemble).
+    Config is stored in df.attrs.
     """
     p = PLANES[plane]
     n = n or p["n"]
@@ -347,7 +349,7 @@ def make_dataset(plane="xray", scenario="wedge", n=None, strength=2.5,
 
 def make_fused_dataset(scenario="linear", wise_signal=0.0, n=None, strength=2.5,
                        distance_noise=False, prevalence=None, seed=0,
-                       feature_model="bootstrap", jitter=0.03, ceiling=1.0):
+                       feature_model="bootstrap", jitter=0.03, ceiling=0.4):
     """Joint X-ray + WISE catalog as a DataFrame (4 feature columns).
 
     The true boundary is built from the X-ray features (via `scenario`) PLUS a
@@ -404,9 +406,9 @@ if __name__ == "__main__":
         print(f"  {plane:4s} wedge+dist   true_prev={dn.attrs['true_prevalence']:.3f}"
               f"  obs_prev={dn.attrs['obs_prevalence']:.3f}  "
               f"(distance noise hides {hidden} of {int(dn['z_true'].sum())} true masers)")
-        cp = make_dataset(plane=plane, scenario="wedge", ceiling=0.4, seed=0)
-        print(f"  {plane:4s} wedge+ceil   obs_prev={cp.attrs['obs_prevalence']:.3f}"
-              f"  max_p_true={cp['p_true'].max():.3f}  (ceiling=0.4 caps the tail)")
+        cp = make_dataset(plane=plane, scenario="wedge", ceiling=1.0, seed=0)
+        print(f"  {plane:4s} wedge+uncap  obs_prev={cp.attrs['obs_prevalence']:.3f}"
+              f"  max_p_true={cp['p_true'].max():.3f}  (ceiling=1.0 lets the tail run to ~1)")
 
     print("\n  fused (X-ray + WISE):")
     for ws in (0.0, 1.5):
